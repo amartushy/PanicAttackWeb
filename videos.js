@@ -68,7 +68,10 @@ let previewsContainer = document.getElementById('previews-container')
 
 // Assuming you have a function to fetch video data and user data
 async function displayVideos() {
-    const videos = await fetchVideos(); // You need to implement this function
+    while (previewsContainer.firstChild) {
+        previewsContainer.removeChild(previewsContainer.firstChild)
+    }
+    const videos = await fetchVideos();
 
     videos.forEach(video => {
         const videoContainer = createDOMElement('div', 'video-preview-container', '', previewsContainer )
