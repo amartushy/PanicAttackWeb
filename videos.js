@@ -1,5 +1,3 @@
-
-
 const defaultImgUrl = "https://firebasestorage.googleapis.com/v0/b/locale-e7a62.appspot.com/o/Image%20copy.png?alt=media&token=eb362744-427e-460d-913a-76b433600395";
 
 
@@ -32,29 +30,33 @@ function formatLength(lengthInSeconds) {
 
 
 const db = firebase.firestore();
+let paymentPerUpload = 7; // Default value in case the config is not set or fetched
+
+
 
 async function fetchVideos() {
     const videos = [];
-    const footageRef = db.collection('footage');
+    const footageRef = db.collection('footage').orderBy('dateTaken', 'desc'); // Sorting by dateTaken in descending order
     const snapshot = await footageRef.get();
 
     for (const doc of snapshot.docs) {
         const videoData = doc.data();
-        // Assume videoData contains userId pointing to a user document
         const userRef = db.collection('users').doc(videoData.userId);
         const userSnapshot = await userRef.get();
         const userData = userSnapshot.data();
 
         const userProfilePhotoURL = userData.profilePhoto && userData.profilePhoto !== "" ? userData.profilePhoto : defaultImgUrl;
 
-        // Construct the video object including user info and video details
         const video = {
+            id: doc.id,
             videoURL: videoData.videoURL,
-            dateTaken: videoData.dateTaken, // Firestore Timestamp object
+            dateTaken: videoData.dateTaken,
             length: videoData.duration,
-            locationStr : videoData.locationString,
+            locationStr: videoData.locationString,
             userName: userData.name,
-            userPhotoURL: userProfilePhotoURL
+            userPhotoURL: userProfilePhotoURL,
+            userId: videoData.userId,
+            status: videoData.status
         };
 
         videos.push(video);
@@ -64,6 +66,19 @@ async function fetchVideos() {
 }
 
 let previewsContainer = document.getElementById('previews-container')
+
+
+// Set up a realtime listener for the paymentPerUpload value
+db.collection('config').doc('config')
+    .onSnapshot(docSnapshot => {
+        const configData = docSnapshot.data();
+        if (configData && configData.paymentPerUpload) {
+            paymentPerUpload = configData.paymentPerUpload;
+        }
+    }, err => {
+        console.log(`Encountered error: ${err}`);
+    });
+
 
 
 // Assuming you have a function to fetch video data and user data
@@ -100,7 +115,40 @@ async function displayVideos() {
         createDOMElement('div', 'filter-text', video.userName, profileInfo);
         createDOMElement('div', 'filter-text', video.locationStr, profileInfo);
 
+        const videoActionsDiv = createDOMElement('div', 'video-actions-div', '', infoContainer)
+        if (video.status == "PAID" || video.status == "DENIED") {
+            createDOMElement('div', 'status-button', video.status, videoActionsDiv);
+        } else {
+            let approveButton = createDOMElement('div', 'approve-button', `APPROVE: $${paymentPerUpload}`, videoActionsDiv);
+            let declineButton = createDOMElement('div', 'deny-button', "DENY", videoActionsDiv);
+
+            approveButton.onclick = async function() {
+                const videoRef = db.collection('footage').doc(video.id);
+                await videoRef.update({status: "PAID"});
+                const userRef = db.collection('users').doc(video.userId);
+                await userRef.update({balance: firebase.firestore.FieldValue.increment(paymentPerUpload)});
+                updateVideoStatusDisplay(videoContainer, "PAID"); // Update the status display instead of refreshing the entire list
+            };
+
+            declineButton.onclick = async function() {
+                const videoRef = db.collection('footage').doc(video.id);
+                await videoRef.update({status: "DENIED"});
+                updateVideoStatusDisplay(videoContainer, "DENIED"); // Update the status display instead of refreshing the entire list
+            };
+        }
     });
+}
+
+// This function updates the visual representation of a video's status
+function updateVideoStatusDisplay(videoContainer, newStatus) {
+    const statusDiv = videoContainer.querySelector('.video-actions-div .status-button');
+    if (statusDiv) {
+        statusDiv.innerText = newStatus; // Update the text if the status div already exists
+    } else {
+        const videoActionsDiv = videoContainer.querySelector('.video-actions-div');
+        videoActionsDiv.innerHTML = ""
+        createDOMElement('div', 'status-button', newStatus, videoActionsDiv); // Create a new status div if it doesn't exist
+    }
 }
 
 displayVideos();
